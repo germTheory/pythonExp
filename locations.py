@@ -10,12 +10,12 @@ from geopy.distance import vincenty
 from random import randrange
 
 # To be command line arguments
-startDateTime = datetime.datetime(2014, 11, 8, 0, 0, 0);
-endDateTime = datetime.datetime(2014, 11, 8, 0, 0, 0);
-diseaseName = "Ebola";
+startDateTime = datetime.datetime(2013, 11, 8, 0, 0, 0)
+endDateTime = datetime.datetime(2014, 12, 8, 0, 0, 0)
+diseaseName = "Ebola"
 
 
-# used for convenience in case the schema is changed later
+# used for convenience in case the schema is changed later, saves indexes of location values
 locId = 0
 locUserId = 5
 locLat = 1
@@ -31,7 +31,7 @@ try:
 	conn = psycopg2.connect("dbname='kmeurer' user='kevinmeurer' host='localhost' password=''")
 	print("Connected to Database")
 except:
-	print("I am unable to connect to the database.")
+	print("Unable to connect to the database.")
 
 # find disease Id and relevant information about it
 cur = conn.cursor()
@@ -39,35 +39,52 @@ cur.execute('SELECT * FROM diseases WHERE name = %s', (diseaseName,))
 diseaseData = cur.fetchall()[0] # get the first item in the returned function
 diseaseId = diseaseData[0]
 
+
 # find users that have been confirmed infected with the disease
 cur.execute('SELECT * FROM user_diseases WHERE disease_id = %s', (diseaseId,))
-infectedUsers = [entry[1] for entry in cur.fetchall()]
+infectedList = [entry[1] for entry in cur.fetchall()]
+infectedUsers = {}
+for user in infectedList:
+	infectedUsers[user] = {} # this will eventually store disease information about the user
+
 
 # get all location data during the time we're concened with. created after start and before end
 cur.execute('SELECT * FROM locations WHERE created_at > %s AND created_at < %s', (startDateTime, endDateTime))
 data = cur.fetchall()
 
 
-def parseData(data, infectedUserIds):
+def parseData(allData, infectedUserData):
 	# iterate through data, assigning it to dictionaries, one for infected people and another for regular users
 	# each item in data looks like: (id, latitude, longitude, created_at, updated_at, user_id)
-	users = {}
-	infected = {}
-	for userEntry in data:
-		time = userEntry[locTime]
+	userLocs = {}
+	infectedLocs = {}
+	for userEntry in allData:
+		currentTime = userEntry[locTime]
 		lat = userEntry[locLat]
 		long = userEntry[locLong]
+		userId = userEntry[locUserId]
 		# if already in our data structure, we can assign new location coordinates
-		if userEntry[len(userEntry) - 1] in users or userEntry[len(userEntry) - 1] in infected:
-			if userEntry[len(userEntry) - 1]:
-				users[userEntry].append( ((lat, long), time) )
+		if userId in userLocs:
+			userLocs[userId].append( { 'coords': (lat, long), 'time': currentTime } )
+		elif userId in infectedLocs:
+			infectedLocs[userId].append( { 'coords': (lat, long), 'time': currentTime } )
+		# if not, check if they are infected and then add them to the apropriate table
+		else:
+			if userId in infectedUserData:
+				infectedLocs[userId] = [ { 'coords': (lat, long), 'time': currentTime } ]
 			else:
-				infected[userEntry].append( ((lat, long), time) )
-		# if not, check if they are infected and then add
-		# else:
+				userLocs[userId] = [ { 'coords': (lat, long), 'time': currentTime } ]
+	for userEntry in userLocs:
+		userEntry = sorted(userEntry, key=lambda k: k['time'])
+	for infectedEntry in infectedLocs:
+		infectedLocs[infectedEntry] = sorted(infectedLocs[infectedEntry], key=lambda k: k['time'])
+	return (userLocs, infectedLocs)
 
-
-
+parsed = parseData(data, infectedUsers)
+print("USER PARSED")
+print(parsed[0])
+print("INFECTED PARSED")
+print(parsed[1])
 
 
 
