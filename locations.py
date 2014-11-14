@@ -1,19 +1,23 @@
 import sys
 import datetime
+import pytz
 import numpy as np
 import math
 import normalize as norm
-# import pylab
 import psycopg2
 import geopy
+import scipy
+from math import exp
+from scipy.integrate import simps
 from geopy.distance import vincenty
 from random import randrange
 
 # To be command line arguments
-startDateTime = datetime.datetime(2013, 11, 8, 0, 0, 0)
-endDateTime = datetime.datetime(2014, 12, 8, 0, 0, 0)
+startDateTime = datetime.datetime(2013, 11, 8, 0, 0, 0).replace(tzinfo=pytz.UTC)
+endDateTime = datetime.datetime(2014, 12, 8, 0, 0, 0).replace(tzinfo=pytz.UTC)
 diseaseName = "Ebola"
-
+threshold = 50 #feet
+contagiousness = 6
 
 # used for convenience in case the schema is changed later, saves indexes of location values
 locId = 0
@@ -28,10 +32,10 @@ locTime = 3
 # threshold = .05
 
 try:
-	conn = psycopg2.connect("dbname='kmeurer' user='kevinmeurer' host='localhost' password=''")
-	print("Connected to Database")
+    conn = psycopg2.connect("dbname='kmeurer' user='kevinmeurer' host='localhost' password=''")
+    print("Connected to Database")
 except:
-	print("Unable to connect to the database.")
+    print("Unable to connect to the database.")
 
 # find disease Id and relevant information about it
 cur = conn.cursor()
@@ -45,89 +49,93 @@ cur.execute('SELECT * FROM user_diseases WHERE disease_id = %s', (diseaseId,))
 infectedList = [entry[1] for entry in cur.fetchall()]
 infectedUsers = {}
 for user in infectedList:
-	infectedUsers[user] = {} # this will eventually store disease information about the user
+    infectedUsers[user] = {} # this will eventually store disease information about the user
 
 
 # get all location data during the time we're concened with. created after start and before end
 cur.execute('SELECT * FROM locations WHERE created_at > %s AND created_at < %s', (startDateTime, endDateTime))
 data = cur.fetchall()
 
+# parse and normalize data
+mainData = parseData(data, infectedUsers, 660)
+results = {}
+numOfTimes = mainData[2]
+infectedLocs = mainData[1]
+userLocs = mainData[0]
+for userId in userLocs:
+    print('Calculating index for user %s of %s' % (userId, len(userLocs)) )
+    user = userLocs[userId]
+    count = 0;
+    for infectedId in infectedLocs:
+        infected = infectedLocs[infectedId]
+        distances = [] # to be our y values
+        for idx, val in enumerate(user):
+            if val == None or infected[idx] == none:
+                distances.append(None)
+            else:
+                distances.append(vincenty(val, infected[idx]).feet)
+        belowthreshold = false
+        belowdata = []
+        for idx, distance in enumerate(distances):
+            if (!belowthreshold and distance > threshold) or distance == None:
+                continue
+            # check if we're at the end
+            elif (belowthreshold and distance > threshold) or (belowthreshold and idx == len(distances) - 1):
+                # TODO: calculate distance
+                count += (threshold * (len(belowdata) - 1)) - simps(belowdata, dx = 1)
+                belowdata = []
+                belowthreshold = false
+            elif !belowthreshold and distance < threshold:
+                belowthreshold = true
+                belowdata.append(distance)
+            elif belowthreshold and distance < threshold:
+                belowdata.append(distance)
+            else
+                continue
+    results[userId] = mapcount(count, contagiousness, threshold)
 
-def parseData(allData, infectedUserData):
-	# iterate through data, assigning it to dictionaries, one for infected people and another for regular users
-	# each item in data looks like: (id, latitude, longitude, created_at, updated_at, user_id)
-	userLocs = {}
-	infectedLocs = {}
-	for userEntry in allData:
-		currentTime = userEntry[locTime]
-		lat = userEntry[locLat]
-		long = userEntry[locLong]
-		userId = userEntry[locUserId]
-		# if already in our data structure, we can assign new location coordinates
-		if userId in userLocs:
-			userLocs[userId].append( { 'coords': (lat, long), 'time': currentTime } )
-		elif userId in infectedLocs:
-			infectedLocs[userId].append( { 'coords': (lat, long), 'time': currentTime } )
-		# if not, check if they are infected and then add them to the apropriate table
-		else:
-			if userId in infectedUserData:
-				infectedLocs[userId] = [ { 'coords': (lat, long), 'time': currentTime } ]
-			else:
-				userLocs[userId] = [ { 'coords': (lat, long), 'time': currentTime } ]
-	for userEntry in userLocs:
-		userEntry = sorted(userEntry, key=lambda k: k['time'])
-	for infectedEntry in infectedLocs:
-		infectedLocs[infectedEntry] = sorted(infectedLocs[infectedEntry], key=lambda k: k['time'])
-	return (userLocs, infectedLocs)
+print(results)
 
-parsed = parseData(data, infectedUsers)
-print("USER PARSED")
-print(parsed[0])
-print("INFECTED PARSED")
-print(parsed[1])
+# helper functions, by order of appearance
+def parseData(allData, infectedUserData, interval):
+    # iterate through data, assigning it to dictionaries, one for infected people and another for regular users
+    # each item in data looks like: (id, latitude, longitude, created_at, updated_at, user_id)
+    userLocs = {}
+    infectedLocs = {}
+    for userEntry in allData:
+        currentTime = userEntry[locTime]
+        lat = userEntry[locLat]
+        long = userEntry[locLong]
+        userId = userEntry[locUserId]
+        # if already in our data structure, we can assign new location coordinates
+        if userId in userLocs:
+            userLocs[userId].append( { 'coords': (lat, long), 'time': currentTime } )
+        elif userId in infectedLocs:
+            infectedLocs[userId].append( { 'coords': (lat, long), 'time': currentTime } )
+        # if not, check if they are infected and then add them to the apropriate table
+        else:
+            if userId in infectedUserData:
+                infectedLocs[userId] = [ { 'coords': (lat, long), 'time': currentTime } ]
+            else:
+                userLocs[userId] = [ { 'coords': (lat, long), 'time': currentTime } ]
+    times = []
+    current = startDateTime
+    interval = datetime.timedelta(0, interval)
+    while current <= endDateTime:
+        times.append(current)
+        current += interval
+    for userEntry in userLocs:
+        # sort user data and then normalize it for 2 minute intervals
+        userLocs[userEntry] = norm.normalize(sorted(userLocs[userEntry], key=lambda k: k['time']), times)
+        print("Processed User %s" % (userEntry))
+    print('ALL USERS PROCESSED')
+    for infectedEntry in infectedLocs:
+        infectedLocs[infectedEntry] = norm.normalize(sorted(infectedLocs[infectedEntry], key=lambda k: k['time']), times)
+        print("Processed Infected %s" % (infectedEntry))
+    print('ALL INFECTED PRE-PROCESSED...now for the hard part.')
+    return (userLocs, infectedLocs, len(times))
 
-
-
-# def simulatePositions():
-#     positions = []
-#     # Instantiate 100 people
-#     for person in range(population):
-#         lat = randrange(90000)/1000000.
-#         lng = randrange(180000)/1000000.
-#         positions[len(positions):] = [ (person, lat, lng, 0) ]
-#     arr = []
-#     for time in range(iterations):
-#         for userId in range(population):
-#             idx = 0;
-#             positions[userId]=(
-#                 positions[userId][0],
-#                 positions[userId][1] + randrange(1000)/100000.,
-#                 positions[userId][2] + randrange(1000)/100000.,
-#                 time)
-#             lat = positions[userId][1]
-#             lng = positions[userId][2]
-#             arr[len(arr):] = [(positions[userId][0], lat, lng, time, idx)]
-#     return arr
-
-
-# userData = simulatePositions();
-# # capture data points of only the two people we are concerned with
-# infectedUser = userData.filter( lambda tup: tup[0] == ebolaid );
-# comparedUser = userData.filter( lambda tup: tup[0] == myid ).collect();
-
-
-# # normalize data to have consistent data points to compare
-# # userData = res.filter( lambda tup: tup[0]==myid )
-# x = infectedUser.map(lambda position: position[3])
-# y = []
-# for i in userData:
-# 	y.append()
-# # use pylab to plot x and y
-# pylab.plot( x, y )
-# pylab.axhline( threshold, 0, iterations )
-# # show the plot on the screen
-# pylab.show()
-
-# result = userData.reduce(lambda a,b:(myid,a[1]+b[1]))
-# print (result[0], result[1] / len(infectedUser));
-# print 'Finished'
+def mapcount(count, contagiousness, threshold):
+    # because math is fun.  See here for what this looks like: http://bit.ly/1u7DQuj
+    # y = 1 - exp(-bx), where b = con/(thresh*300) and x = count
+    return 1 - math.exp((-1)*(contagiousness/(threshold * 300)) * count)
