@@ -17,7 +17,7 @@ def normalize(userData, times):
         elif len(surroundingIndices) == 2:
             newLatLong = interpolate(userData[surroundingIndices[0]], userData[surroundingIndices[1]], time) # create a tuple of the interpolated latitude and longitude
             newDict = {'coords': (newLatLong[0], newLatLong[1]), 'time': time}
-            print(newDict)
+            # print(newDict)
             data.append(newDict)
         else:
             data.append(None)

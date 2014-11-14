@@ -13,90 +13,13 @@ from geopy.distance import vincenty
 from random import randrange
 
 # To be command line arguments
-startDateTime = datetime.datetime(2013, 11, 8, 0, 0, 0).replace(tzinfo=pytz.UTC)
-endDateTime = datetime.datetime(2014, 12, 8, 0, 0, 0).replace(tzinfo=pytz.UTC)
+startDateTime = datetime.datetime(2014, 11, 7, 0, 0, 0).replace(tzinfo=pytz.UTC)
+endDateTime = datetime.datetime(2014, 11, 8, 0, 0, 0).replace(tzinfo=pytz.UTC)
 diseaseName = "Ebola"
-threshold = 50 #feet
-contagiousness = 6
+threshold = 750 #feet
+contagiousness = 10
+timeInterval = 120
 
-# used for convenience in case the schema is changed later, saves indexes of location values
-locId = 0
-locUserId = 5
-locLat = 1
-locLong = 2
-locTime = 3
-# ebolaid = 1
-# myid = 2
-# population = 10
-# iterations = 100
-# threshold = .05
-
-try:
-    conn = psycopg2.connect("dbname='kmeurer' user='kevinmeurer' host='localhost' password=''")
-    print("Connected to Database")
-except:
-    print("Unable to connect to the database.")
-
-# find disease Id and relevant information about it
-cur = conn.cursor()
-cur.execute('SELECT * FROM diseases WHERE name = %s', (diseaseName,))
-diseaseData = cur.fetchall()[0] # get the first item in the returned function
-diseaseId = diseaseData[0]
-
-
-# find users that have been confirmed infected with the disease
-cur.execute('SELECT * FROM user_diseases WHERE disease_id = %s', (diseaseId,))
-infectedList = [entry[1] for entry in cur.fetchall()]
-infectedUsers = {}
-for user in infectedList:
-    infectedUsers[user] = {} # this will eventually store disease information about the user
-
-
-# get all location data during the time we're concened with. created after start and before end
-cur.execute('SELECT * FROM locations WHERE created_at > %s AND created_at < %s', (startDateTime, endDateTime))
-data = cur.fetchall()
-
-# parse and normalize data
-mainData = parseData(data, infectedUsers, 660)
-results = {}
-numOfTimes = mainData[2]
-infectedLocs = mainData[1]
-userLocs = mainData[0]
-for userId in userLocs:
-    print('Calculating index for user %s of %s' % (userId, len(userLocs)) )
-    user = userLocs[userId]
-    count = 0;
-    for infectedId in infectedLocs:
-        infected = infectedLocs[infectedId]
-        distances = [] # to be our y values
-        for idx, val in enumerate(user):
-            if val == None or infected[idx] == none:
-                distances.append(None)
-            else:
-                distances.append(vincenty(val, infected[idx]).feet)
-        belowthreshold = false
-        belowdata = []
-        for idx, distance in enumerate(distances):
-            if (!belowthreshold and distance > threshold) or distance == None:
-                continue
-            # check if we're at the end
-            elif (belowthreshold and distance > threshold) or (belowthreshold and idx == len(distances) - 1):
-                # TODO: calculate distance
-                count += (threshold * (len(belowdata) - 1)) - simps(belowdata, dx = 1)
-                belowdata = []
-                belowthreshold = false
-            elif !belowthreshold and distance < threshold:
-                belowthreshold = true
-                belowdata.append(distance)
-            elif belowthreshold and distance < threshold:
-                belowdata.append(distance)
-            else
-                continue
-    results[userId] = mapcount(count, contagiousness, threshold)
-
-print(results)
-
-# helper functions, by order of appearance
 def parseData(allData, infectedUserData, interval):
     # iterate through data, assigning it to dictionaries, one for infected people and another for regular users
     # each item in data looks like: (id, latitude, longitude, created_at, updated_at, user_id)
@@ -138,4 +61,84 @@ def parseData(allData, infectedUserData, interval):
 def mapcount(count, contagiousness, threshold):
     # because math is fun.  See here for what this looks like: http://bit.ly/1u7DQuj
     # y = 1 - exp(-bx), where b = con/(thresh*300) and x = count
-    return 1 - math.exp((-1)*(contagiousness/(threshold * 300)) * count)
+    return 1 - math.exp((-1)*(contagiousness/(threshold * (7000/timeInterval) )) * count)
+
+
+
+
+# used for convenience in case the schema is changed later, saves indexes of location values
+locId = 0
+locUserId = 6
+locLat = 1
+locLong = 2
+locTime = 3
+# ebolaid = 1
+# myid = 2
+# population = 10
+# iterations = 100
+# threshold = .05
+
+try:
+    conn = psycopg2.connect("dbname='kmeurer' user='kevinmeurer' host='localhost' password=''")
+    print("Connected to Database")
+except:
+    print("Unable to connect to the database.")
+
+# find disease Id and relevant information about it
+cur = conn.cursor()
+cur.execute('SELECT * FROM diseases WHERE name = %s', (diseaseName,))
+diseaseData = cur.fetchall()[0] # get the first item in the returned function
+diseaseId = diseaseData[0]
+
+
+# find users that have been confirmed infected with the disease
+cur.execute('SELECT * FROM user_diseases WHERE disease_id = %s', (diseaseId,))
+infectedList = [entry[2] for entry in cur.fetchall()]
+infectedUsers = {}
+for user in infectedList:
+    infectedUsers[user] = {} # this will eventually store disease information about the user
+print(infectedUsers)
+# get all location data during the time we're concened with. created after start and before end
+cur.execute('SELECT * FROM locations WHERE date > %s AND date < %s', (startDateTime, endDateTime))
+data = cur.fetchall()
+# print(data)
+# parse and normalize data
+mainData = parseData(data, infectedUsers, timeInterval)
+results = {}
+numOfTimes = mainData[2]
+infectedLocs = mainData[1]
+userLocs = mainData[0]
+for userId in userLocs:
+    print('Calculating index for user %s of %s' % (userId, len(userLocs)) )
+    user = userLocs[userId]
+    count = 0;
+    for infectedId in infectedLocs:
+        infected = infectedLocs[infectedId]
+        distances = [] # to be our y values
+        for idx, val in enumerate(user):
+            print("VAL IS %s" % val)
+            if val == None or infected[idx] == None:
+                distances.append(None)
+            else:
+                distances.append(vincenty(val['coords'], infected[idx]['coords']).feet)
+        belowthreshold = None
+        belowdata = []
+        for idx, distance in enumerate(distances):
+            if  distance == None or (belowthreshold == None and distance > threshold):
+                continue
+            # check if we're at the end
+            elif (belowthreshold == True and distance > threshold) or (belowthreshold == True and idx == len(distances) - 1):
+                # TODO: calculate distance
+                count += (threshold * (len(belowdata) - 1)) - simps(belowdata, dx = 1)
+                belowdata = []
+                belowthreshold = None
+            elif belowthreshold == None and distance < threshold:
+                belowthreshold = True
+                belowdata.append(distance)
+            elif belowthreshold == True and distance < threshold:
+                belowdata.append(distance)
+            else:
+                continue
+    results[userId] = mapcount(count, contagiousness, threshold)
+
+print(results)
