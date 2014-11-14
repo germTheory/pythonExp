@@ -15,10 +15,12 @@ from random import randrange
 # To be command line arguments
 startDateTime = datetime.datetime(2014, 11, 7, 0, 0, 0).replace(tzinfo=pytz.UTC)
 endDateTime = datetime.datetime(2014, 11, 8, 0, 0, 0).replace(tzinfo=pytz.UTC)
+dayDifference = (endDateTime - startDateTime).days
 diseaseName = "Ebola"
-threshold = 750 #feet
+threshold = 500 #feet
 contagiousness = 10
-timeInterval = 120
+timeInterval = 180
+modifier = threshold * 10
 
 def parseData(allData, infectedUserData, interval):
     # iterate through data, assigning it to dictionaries, one for infected people and another for regular users
@@ -61,7 +63,7 @@ def parseData(allData, infectedUserData, interval):
 def mapcount(count, contagiousness, threshold):
     # because math is fun.  See here for what this looks like: http://bit.ly/1u7DQuj
     # y = 1 - exp(-bx), where b = con/(thresh*300) and x = count
-    return 1 - math.exp((-1)*(contagiousness/(threshold * (7000/timeInterval) )) * count)
+    return 1 - math.exp((-1)*(contagiousness/(threshold * (modifier/timeInterval) * dayDifference )) * count)
 
 
 
@@ -72,11 +74,6 @@ locUserId = 6
 locLat = 1
 locLong = 2
 locTime = 3
-# ebolaid = 1
-# myid = 2
-# population = 10
-# iterations = 100
-# threshold = .05
 
 try:
     conn = psycopg2.connect("dbname='kmeurer' user='kevinmeurer' host='localhost' password=''")
@@ -97,9 +94,8 @@ infectedList = [entry[2] for entry in cur.fetchall()]
 infectedUsers = {}
 for user in infectedList:
     infectedUsers[user] = {} # this will eventually store disease information about the user
-print(infectedUsers)
 # get all location data during the time we're concened with. created after start and before end
-cur.execute('SELECT * FROM locations WHERE date > %s AND date < %s', (startDateTime, endDateTime))
+cur.execute('SELECT * FROM locations WHERE date > %s AND date < %s', (startDateTime - datetime.timedelta(0, 50000), endDateTime + datetime.timedelta(0, 50000)))
 data = cur.fetchall()
 # print(data)
 # parse and normalize data
@@ -116,7 +112,6 @@ for userId in userLocs:
         infected = infectedLocs[infectedId]
         distances = [] # to be our y values
         for idx, val in enumerate(user):
-            print("VAL IS %s" % val)
             if val == None or infected[idx] == None:
                 distances.append(None)
             else:
@@ -140,5 +135,6 @@ for userId in userLocs:
             else:
                 continue
     results[userId] = mapcount(count, contagiousness, threshold)
+    print('Found an %s index of %s' % (diseaseName, results[userId]));
 
 print(results)
