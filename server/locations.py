@@ -1,5 +1,6 @@
-#!/usr/bin/env python3.4
+#!/usr/bin/env python
 import sys
+import json
 import datetime
 import pytz
 import math
@@ -13,13 +14,38 @@ from geopy.distance import vincenty
 from random import randrange
 
 # To be command line arguments
-startDateTime = datetime.datetime(2014, 11, 7, 0, 0, 0).replace(tzinfo=pytz.UTC)
-endDateTime = datetime.datetime(2014, 11, 8, 0, 0, 0).replace(tzinfo=pytz.UTC)
+arguments = json.loads(sys.argv[1])
+print(arguments)
+
+if 'timeInterval' in arguments:
+    timeInterval = arguments['timeInterval']
+else:
+    timeInterval = 180 # 3 minutes
+
+if 'startTime' in arguments && 'endTime' in arguments:
+    startDateTime = arguments['startTime']
+    endDateTime = arguments['endTime']
+else:
+    raise Exception("did not provide start and end time values")
+
+if 'diseaseName' in arguments:
+    diseaseName = arguments['diseaseName']
+else:
+    diseaseName = None
+
+if 'threshold' in arguments:
+    threshold = arguments['threshold'] #feet
+else:
+    threshold = 150 #feet
+
+if 'user' in arguments:
+    userName = arguments['user']
+else:
+    userName = None
+
+
 dayDifference = (endDateTime - startDateTime).days
-diseaseName = "Ebola"
-threshold = 150 #feet
-contagiousness = 5
-timeInterval = 180
+contagiousness = 6 # hard-coded for now 
 modifier = threshold * 10
 
 def parseData(allData, infectedUserData, interval):
@@ -66,8 +92,6 @@ def mapcount(count, contagiousness, threshold):
     return 1 - math.exp((-1)*(contagiousness/(threshold * (modifier/timeInterval) * dayDifference )) * count)
 
 
-
-
 # used for convenience in case the schema is changed later, saves indexes of location values
 locId = 0
 locUserId = 6
@@ -76,29 +100,39 @@ locLong = 2
 locTime = 3
 
 try:
-    conn = psycopg2.connect("dbname='kmeurer' user='kevinmeurer' host='localhost' password=''")
-    # conn = psycopg2.connect("dbname='d21pkb4ibembvk' user='uer1d0n84nrcv8' host='ec2-54-243-218-135.compute-1.amazonaws.com' password='p81tjh25nn1g288d13fmt54kro3'")
+    conn = psycopg2.connect("dbname='d21pkb4ibembvk' user='uer1d0n84nrcv8' host='ec2-54-243-218-135.compute-1.amazonaws.com' password='p81tjh25nn1g288d13fmt54kro3'")
     print("Connected to Database")
 except:
     print("Unable to connect to the database.")
 
 # find disease Id and relevant information about it
 cur = conn.cursor()
-cur.execute('SELECT * FROM diseases WHERE name = %s', (diseaseName,))
+cur.execute('SELECT * FROM diseases WHERE name = %s;', (diseaseName,))
 diseaseData = cur.fetchall()[0] # get the first item in the returned function
 diseaseId = diseaseData[0]
 
 
 # find users that have been confirmed infected with the disease
-cur.execute('SELECT * FROM user_diseases WHERE disease_id = %s', (diseaseId,))
+cur.execute('SELECT * FROM user_diseases WHERE disease_id = %s;', (diseaseId,))
 infectedList = [entry[2] for entry in cur.fetchall()]
 infectedUsers = {}
 for user in infectedList:
     infectedUsers[user] = {} # this will eventually store disease information about the user
+
 # get all location data during the time we're concened with. created after start and before end
-cur.execute('SELECT * FROM locations WHERE date > %s AND date < %s', (startDateTime - datetime.timedelta(0, 50000), endDateTime + datetime.timedelta(0, 50000)))
-data = cur.fetchall()
-# print(data)
+if userName == None:
+    cur.execute('SELECT * FROM locations WHERE date > %s AND date < %s', (startDateTime - datetime.timedelta(0, 50000), endDateTime + datetime.timedelta(0, 50000)))
+    data = cur.fetchall()
+else:
+    cur.execute('SELECT * FROM locations WHERE date > %s AND date < %s AND user_id = %s', (startDateTime - datetime.timedelta(0, 50000), endDateTime + datetime.timedelta(0, 50000), userId))
+    data = cur.fetchall()
+    for infected in infectedList:
+        cur.execute('SELECT * FROM locations WHERE date > %s AND date < %s AND user_id = %s', (startDateTime - datetime.timedelta(0, 50000), endDateTime + datetime.timedelta(0, 50000), infected))
+        tempData = cur.fetchall()
+        for item in tempData:
+            data.append(item)
+
+
 # parse and normalize data
 mainData = parseData(data, infectedUsers, timeInterval)
 results = {}
@@ -143,4 +177,3 @@ conn.commit()
 cur.close()
 cur2.close()
 conn.close()
-print(results)

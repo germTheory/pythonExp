@@ -1,2 +1,4 @@
+scipy==0.14.0
 geopy==1.4.0
 psycopg2==2.5.4
+numpy==1.9.1

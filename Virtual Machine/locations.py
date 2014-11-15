@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.4
+#!/usr/bin/env python
 import sys
 import datetime
 import pytz
@@ -13,13 +13,13 @@ from geopy.distance import vincenty
 from random import randrange
 
 # To be command line arguments
-startDateTime = datetime.datetime(2014, 11, 7, 0, 0, 0).replace(tzinfo=pytz.UTC)
-endDateTime = datetime.datetime(2014, 11, 8, 0, 0, 0).replace(tzinfo=pytz.UTC)
+endDateTime = datetime.datetime.now().replace(tzinfo=pytz.UTC)
+startDateTime = (endDateTime - datetime.timedelta(1,0)).replace(tzinfo=pytz.UTC)
 dayDifference = (endDateTime - startDateTime).days
 diseaseName = "Ebola"
 threshold = 150 #feet
-contagiousness = 5
-timeInterval = 180
+contagiousness = 6 # hard-coded for now 
+timeInterval = 180 # 3 minutes
 modifier = threshold * 10
 
 def parseData(allData, infectedUserData, interval):
@@ -66,8 +66,6 @@ def mapcount(count, contagiousness, threshold):
     return 1 - math.exp((-1)*(contagiousness/(threshold * (modifier/timeInterval) * dayDifference )) * count)
 
 
-
-
 # used for convenience in case the schema is changed later, saves indexes of location values
 locId = 0
 locUserId = 6
@@ -76,21 +74,20 @@ locLong = 2
 locTime = 3
 
 try:
-    conn = psycopg2.connect("dbname='kmeurer' user='kevinmeurer' host='localhost' password=''")
-    # conn = psycopg2.connect("dbname='d21pkb4ibembvk' user='uer1d0n84nrcv8' host='ec2-54-243-218-135.compute-1.amazonaws.com' password='p81tjh25nn1g288d13fmt54kro3'")
+    conn = psycopg2.connect("dbname='d21pkb4ibembvk' user='uer1d0n84nrcv8' host='ec2-54-243-218-135.compute-1.amazonaws.com' password='p81tjh25nn1g288d13fmt54kro3'")
     print("Connected to Database")
 except:
     print("Unable to connect to the database.")
 
 # find disease Id and relevant information about it
 cur = conn.cursor()
-cur.execute('SELECT * FROM diseases WHERE name = %s', (diseaseName,))
+cur.execute('SELECT * FROM diseases WHERE name = %s;', (diseaseName,))
 diseaseData = cur.fetchall()[0] # get the first item in the returned function
 diseaseId = diseaseData[0]
 
 
 # find users that have been confirmed infected with the disease
-cur.execute('SELECT * FROM user_diseases WHERE disease_id = %s', (diseaseId,))
+cur.execute('SELECT * FROM user_diseases WHERE disease_id = %s;', (diseaseId,))
 infectedList = [entry[2] for entry in cur.fetchall()]
 infectedUsers = {}
 for user in infectedList:
@@ -98,7 +95,7 @@ for user in infectedList:
 # get all location data during the time we're concened with. created after start and before end
 cur.execute('SELECT * FROM locations WHERE date > %s AND date < %s', (startDateTime - datetime.timedelta(0, 50000), endDateTime + datetime.timedelta(0, 50000)))
 data = cur.fetchall()
-# print(data)
+
 # parse and normalize data
 mainData = parseData(data, infectedUsers, timeInterval)
 results = {}
